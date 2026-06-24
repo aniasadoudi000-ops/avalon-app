@@ -101,15 +101,15 @@ class Game:
     def __init__(self, room_code, game_master_id):
         self.room_code = room_code
         self.game_master_id = game_master_id
-        self.players = {}  # {player_id: {name, role, connected}}
-        self.game_state = 'waiting'  # waiting, roles_assigned, in_game, finished
+        self.players = {}
+        self.game_state = 'waiting'
         self.current_quest = 0
-        self.quest_results = []  # [True, False, True, ...]
-        self.active_roles = []  # Selected roles for this game
-        self.role_assignments = {}  # {player_id: role_name}
-        self.quest_votes = {}  # {player_id: True/False}
-        self.current_team = []  # Players on current quest
-        self.team_proposal_by = None  # Who proposed the current team
+        self.quest_results = []
+        self.active_roles = []
+        self.role_assignments = {}
+        self.quest_votes = {}
+        self.current_team = []
+        self.team_proposal_by = None
         self.timestamp = datetime.now()
 
     def to_dict(self):
@@ -129,14 +129,6 @@ def generate_room_code():
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
 
 def assign_roles(num_players, active_roles):
-    """
-    Assign roles based on number of players and active roles.
-    Respects compatibility rules.
-    """
-    
-    # Validate compatibility
-    required_roles = set()
-    
     if 'merlin' in active_roles and 'morgane' not in active_roles:
         active_roles.append('morgane')
     
@@ -146,11 +138,9 @@ def assign_roles(num_players, active_roles):
     if 'minions' in active_roles and 'morgane' not in active_roles:
         active_roles.append('morgane')
     
-    # Count spies and loyalists needed
     num_loyalists = max(2, num_players // 2 - 1)
     num_spies = num_players - num_loyalists
     
-    # Assign special roles first
     assignment = []
     assigned_roles = set()
     
@@ -162,19 +152,15 @@ def assign_roles(num_players, active_roles):
             assignment.append(role)
             assigned_roles.add(role)
     
-    # Count assigned vs needed
     num_assigned = len(assignment)
     if num_assigned > num_players:
-        # Too many special roles, remove some
         while num_assigned > num_players and assignment:
             assignment.pop()
             num_assigned -= 1
     
-    # Count loyalists and spies in assignment
     loyal_count = sum(1 for r in assignment if r in ROLES['LOYALISTS'])
     spy_count = sum(1 for r in assignment if r in ROLES['SPIES'])
     
-    # Fill remaining spots with vanilla roles
     while len(assignment) < num_players:
         if loyal_count < num_loyalists:
             assignment.append('loyal_servant')
@@ -185,7 +171,6 @@ def assign_roles(num_players, active_roles):
         else:
             break
     
-    # Shuffle and return
     random.shuffle(assignment)
     return assignment[:num_players]
 
@@ -274,26 +259,22 @@ def handle_reveal_roles(data):
     game = games[room_code]
     game.game_state = 'reveal_roles'
     
-    # Build what each player sees
     player_views = {}
     
     for player_id, role_key in game.role_assignments.items():
         player_name = game.players[player_id]['name']
         
-        # Determine role type (loyalist or spy)
         if role_key in ROLES['LOYALISTS']:
             role_data = ROLES['LOYALISTS'][role_key]
         else:
             role_data = ROLES['SPIES'][role_key]
         
-        # Basic role display
         role_display = {
             'role_name': role_data['name'],
             'description': role_data['description'],
             'type': 'Loyalist' if role_data['type'] == 'loyalist' else 'Spy'
         }
         
-        # Calculate what this player sees
         sees = role_data['sees']
         special_info = {}
         
@@ -347,7 +328,7 @@ def handle_reveal_roles(data):
 @socketio.on('propose_team')
 def handle_propose_team(data):
     room_code = data.get('room_code')
-    team_players = data.get('team')  # List of player IDs
+    team_players = data.get('team')
     
     if room_code not in games:
         emit('error', {'message': 'Room not found'})
@@ -366,7 +347,7 @@ def handle_propose_team(data):
 @socketio.on('vote_team')
 def handle_vote_team(data):
     room_code = data.get('room_code')
-    vote = data.get('vote')  # True = approve, False = reject
+    vote = data.get('vote')
     
     if room_code not in games:
         emit('error', {'message': 'Room not found'})
@@ -399,7 +380,7 @@ def handle_quest_mission_votes(data):
     room_code = data.get('room_code')
     quest_num = data.get('quest_num')
     player_id = request.sid
-    vote = data.get('vote')  # True = success, False = sabotage
+    vote = data.get('vote')
     
     if room_code not in games:
         emit('error', {'message': 'Room not found'})
@@ -425,11 +406,9 @@ def handle_end_quest_mission(data):
     votes = list(game.mission_votes.values())
     sabotages = votes.count(False)
     
-    # Quest size determines sabotages needed
-    quest_sizes = [0, 3, 4, 4, 5, 5]  # By quest number
+    quest_sizes = [0, 3, 4, 4, 5, 5]
     team_size = quest_sizes[quest_num] if quest_num < len(quest_sizes) else 5
     
-    # Determine if quest succeeds
     if len(game.players) <= 10:
         sabotages_needed = 1
     else:
@@ -470,4 +449,4 @@ def handle_disconnect():
             }, room=room_code)
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000)
