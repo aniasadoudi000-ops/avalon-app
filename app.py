@@ -8,92 +8,147 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(16)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Store active games in memory (stateless)
 games = {}
 
-# Role definitions
+# Définition complète des rôles
 ROLES = {
-    'LOYALISTS': {
+    'loyalists': {
         'merlin': {
             'name': 'Merlin',
             'type': 'loyalist',
-            'description': 'Knows all spies except Morgane',
+            'description': 'Sait qui sont TOUS les espions sauf Morgane',
             'sees': 'all_spies_except_morgane'
         },
         'perceval': {
             'name': 'Perceval',
             'type': 'loyalist',
-            'description': 'Knows Merlin and Morgane but not which is which',
+            'description': 'Sait qui sont Merlin ET Morgane, mais pas qui est qui',
             'sees': 'merlin_and_morgane'
         },
         'guinevere': {
             'name': 'Guinevere',
             'type': 'loyalist',
-            'description': 'Knows Merlin only',
+            'description': 'Sait qui est Merlin',
             'sees': 'merlin_only'
         },
         'tristan': {
             'name': 'Tristan',
             'type': 'loyalist',
-            'description': 'Knows Iseult',
+            'description': 'Sait qui est Iseult',
             'sees': 'iseult_only'
         },
         'iseult': {
             'name': 'Iseult',
             'type': 'loyalist',
-            'description': 'Knows Tristan',
+            'description': 'Sait qui est Tristan',
             'sees': 'tristan_only'
         },
         'vivien': {
             'name': 'Vivien',
             'type': 'loyalist',
-            'description': 'Loyalist who knows Merlin',
+            'description': 'Loyaliste qui sait qui est Merlin',
             'sees': 'merlin_only'
         },
         'loyal_servant': {
             'name': 'Loyal Servant',
             'type': 'loyalist',
-            'description': 'Vanilla loyalist',
+            'description': 'Loyaliste vanilla - pas d\'infos spéciales',
             'sees': 'nothing'
         }
     },
-    'SPIES': {
+    'spies': {
         'morgane': {
             'name': 'Morgane',
             'type': 'spy',
-            'description': 'Spy. Tricks Merlin. Knows all spies',
+            'description': 'Espion. Connaît tous les autres espions. Trompe Merlin',
             'sees': 'all_spies'
         },
         'oberon': {
             'name': 'Oberon',
             'type': 'spy',
-            'description': 'Hidden spy. Knows all spies',
+            'description': 'Espion caché. Connaît tous les autres espions',
             'sees': 'all_spies'
         },
         'mordred': {
             'name': 'Mordred',
             'type': 'spy',
-            'description': 'Hidden spy. Knows no one. No one knows him',
+            'description': 'Espion ultra-caché. Personne le connaît, il connaît personne',
             'sees': 'nothing'
         },
         'minions': {
-            'name': 'Minion of Morgane',
+            'name': 'Minion de Morgane',
             'type': 'spy',
-            'description': 'Spy who knows Merlin and tries to unmask him',
+            'description': 'Espion qui connaît Merlin et essaie de le démasquer',
             'sees': 'merlin_only'
         },
         'lancelot': {
-            'name': 'Lancelot (Traitor)',
+            'name': 'Lancelot (Traître)',
             'type': 'spy',
-            'description': 'Spy pretending to be loyal',
+            'description': 'Espion qui prétend être loyal',
             'sees': 'all_spies'
         },
         'minion': {
             'name': 'Minion',
             'type': 'spy',
-            'description': 'Vanilla spy',
+            'description': 'Espion vanilla',
             'sees': 'all_spies'
         }
+    }
+}
+
+# Règles de compatibilité
+COMPATIBILITY = {
+    'merlin': {
+        'requires': ['morgane'],
+        'blocks': []
+    },
+    'perceval': {
+        'requires': ['merlin'],
+        'blocks': []
+    },
+    'morgane': {
+        'requires': [],
+        'blocks': []
+    },
+    'minions': {
+        'requires': ['morgane'],
+        'blocks': []
+    },
+    'oberon': {
+        'requires': [],
+        'blocks': []
+    },
+    'mordred': {
+        'requires': [],
+        'blocks': []
+    },
+    'guinevere': {
+        'requires': ['merlin'],
+        'blocks': []
+    },
+    'tristan': {
+        'requires': ['iseult'],
+        'blocks': []
+    },
+    'iseult': {
+        'requires': ['tristan'],
+        'blocks': []
+    },
+    'lancelot': {
+        'requires': [],
+        'blocks': []
+    },
+    'vivien': {
+        'requires': ['merlin'],
+        'blocks': []
+    },
+    'loyal_servant': {
+        'requires': [],
+        'blocks': []
+    },
+    'minion': {
+        'requires': [],
+        'blocks': []
     }
 }
 
@@ -102,15 +157,14 @@ class Game:
         self.room_code = room_code
         self.game_master_id = game_master_id
         self.players = {}
-        self.game_state = 'waiting'
+        self.game_state = 'waiting'  # waiting, selecting_roles, assigning_roles, roles_assigned, in_game, finished
+        self.selected_roles = []  # Rôles sélectionnés par le GM
+        self.role_assignments = {}  # {player_id: role_key}
         self.current_quest = 0
         self.quest_results = []
-        self.active_roles = []
-        self.role_assignments = {}
         self.quest_votes = {}
         self.current_team = []
-        self.team_proposal_by = None
-        self.timestamp = datetime.now()
+        self.mission_votes = {}
 
     def to_dict(self):
         return {
@@ -118,61 +172,42 @@ class Game:
             'game_master_id': self.game_master_id,
             'players': self.players,
             'game_state': self.game_state,
-            'current_quest': self.current_quest,
-            'quest_results': self.quest_results,
-            'active_roles': self.active_roles,
+            'selected_roles': self.selected_roles,
             'role_assignments': self.role_assignments,
-            'current_team': self.current_team
+            'current_quest': self.current_quest,
+            'quest_results': self.quest_results
         }
 
 def generate_room_code():
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
 
-def assign_roles(num_players, active_roles):
-    if 'merlin' in active_roles and 'morgane' not in active_roles:
-        active_roles.append('morgane')
+def get_compatible_roles(selected_roles):
+    """Retourne quels rôles peuvent être sélectionnés basé sur les sélections actuelles"""
+    compatible = {}
+    all_roles = {**ROLES['loyalists'], **ROLES['spies']}
     
-    if 'perceval' in active_roles and 'merlin' not in active_roles and 'morgane' not in active_roles:
-        active_roles.append('merlin')
-    
-    if 'minions' in active_roles and 'morgane' not in active_roles:
-        active_roles.append('morgane')
-    
-    num_loyalists = max(2, num_players // 2 - 1)
-    num_spies = num_players - num_loyalists
-    
-    assignment = []
-    assigned_roles = set()
-    
-    for role in active_roles:
-        if role in ROLES['LOYALISTS']:
-            assignment.append(role)
-            assigned_roles.add(role)
-        elif role in ROLES['SPIES']:
-            assignment.append(role)
-            assigned_roles.add(role)
-    
-    num_assigned = len(assignment)
-    if num_assigned > num_players:
-        while num_assigned > num_players and assignment:
-            assignment.pop()
-            num_assigned -= 1
-    
-    loyal_count = sum(1 for r in assignment if r in ROLES['LOYALISTS'])
-    spy_count = sum(1 for r in assignment if r in ROLES['SPIES'])
-    
-    while len(assignment) < num_players:
-        if loyal_count < num_loyalists:
-            assignment.append('loyal_servant')
-            loyal_count += 1
-        elif spy_count < num_spies:
-            assignment.append('minion')
-            spy_count += 1
+    for role_key, role_data in all_roles.items():
+        if role_key in selected_roles:
+            # Rôle déjà sélectionné
+            compatible[role_key] = {'enabled': True, 'reason': 'selected'}
         else:
-            break
+            # Check si les requirements sont satisfaits
+            reqs = COMPATIBILITY.get(role_key, {}).get('requires', [])
+            blocks = COMPATIBILITY.get(role_key, {}).get('blocks', [])
+            
+            req_satisfied = all(req in selected_roles for req in reqs)
+            not_blocked = not any(block in selected_roles for block in blocks)
+            
+            if req_satisfied and not_blocked:
+                compatible[role_key] = {'enabled': True, 'reason': ''}
+            else:
+                if not req_satisfied:
+                    reason = f"Requires: {', '.join(reqs)}"
+                else:
+                    reason = f"Blocked by: {', '.join(blocks)}"
+                compatible[role_key] = {'enabled': False, 'reason': reason}
     
-    random.shuffle(assignment)
-    return assignment[:num_players]
+    return compatible
 
 @app.route('/')
 def index():
@@ -194,7 +229,7 @@ def handle_create_game(data):
 
 @socketio.on('join_game')
 def handle_join_game(data):
-    room_code = data.get('room_code').upper()
+    room_code = data.get('room_code', '').upper()
     player_name = data.get('player_name')
     player_id = request.sid
     
@@ -210,7 +245,6 @@ def handle_join_game(data):
     game.players[player_id] = {
         'name': player_name,
         'role': None,
-        'sees': [],
         'connected': True
     }
     
@@ -220,32 +254,111 @@ def handle_join_game(data):
         'room_code': room_code
     }, room=room_code)
 
-@socketio.on('assign_roles')
-def handle_assign_roles(data):
+@socketio.on('get_compatible_roles')
+def handle_get_compatible_roles(data):
     room_code = data.get('room_code')
-    active_roles = data.get('roles', [])
     
     if room_code not in games:
         emit('error', {'message': 'Room not found'})
         return
     
     game = games[room_code]
-    player_ids = list(game.players.keys())
-    num_players = len(player_ids)
+    compatible = get_compatible_roles(game.selected_roles)
     
-    if num_players < 6:
-        emit('error', {'message': 'Need at least 6 players'})
+    # Format pour frontend
+    roles_list = []
+    for role_key, role_data in {**ROLES['loyalists'], **ROLES['spies']}.items():
+        role_type = 'loyalist' if role_key in ROLES['loyalists'] else 'spy'
+        compat_info = compatible[role_key]
+        
+        roles_list.append({
+            'key': role_key,
+            'name': role_data['name'],
+            'type': role_type,
+            'description': role_data['description'],
+            'enabled': compat_info['enabled'],
+            'reason': compat_info['reason'],
+            'selected': role_key in game.selected_roles
+        })
+    
+    emit('compatible_roles', {'roles': roles_list})
+
+@socketio.on('toggle_role')
+def handle_toggle_role(data):
+    room_code = data.get('room_code')
+    role_key = data.get('role_key')
+    
+    if room_code not in games:
+        emit('error', {'message': 'Room not found'})
         return
     
-    assigned_roles = assign_roles(num_players, active_roles)
-    game.active_roles = active_roles
+    game = games[room_code]
     
-    for player_id, role_key in zip(player_ids, assigned_roles):
-        game.role_assignments[player_id] = role_key
+    if role_key in game.selected_roles:
+        game.selected_roles.remove(role_key)
+    else:
+        game.selected_roles.append(role_key)
+    
+    # Broadcast roles mises à jour
+    socketio.emit('roles_updated', {
+        'selected_roles': game.selected_roles
+    }, room=room_code)
+
+@socketio.on('start_assignment')
+def handle_start_assignment(data):
+    room_code = data.get('room_code')
+    
+    if room_code not in games:
+        emit('error', {'message': 'Room not found'})
+        return
+    
+    game = games[room_code]
+    game.game_state = 'assigning_roles'
+    
+    # Prépare l'interface d'assignation
+    players_list = []
+    for player_id, player in game.players.items():
+        players_list.append({
+            'id': player_id,
+            'name': player['name']
+        })
+    
+    socketio.emit('ready_to_assign', {
+        'players': players_list,
+        'available_roles': game.selected_roles
+    }, room=room_code)
+
+@socketio.on('assign_player_role')
+def handle_assign_player_role(data):
+    room_code = data.get('room_code')
+    player_id = data.get('player_id')
+    role_key = data.get('role_key')
+    
+    if room_code not in games:
+        emit('error', {'message': 'Room not found'})
+        return
+    
+    game = games[room_code]
+    game.role_assignments[player_id] = role_key
+
+@socketio.on('confirm_assignments')
+def handle_confirm_assignments(data):
+    room_code = data.get('room_code')
+    
+    if room_code not in games:
+        emit('error', {'message': 'Room not found'})
+        return
+    
+    game = games[room_code]
+    
+    # Vérifie que tous les joueurs ont un rôle
+    if len(game.role_assignments) != len(game.players):
+        emit('error', {'message': 'Not all players assigned'})
+        return
     
     game.game_state = 'roles_assigned'
-    socketio.emit('roles_assigned', {
-        'message': 'Roles assigned. Waiting to reveal...'
+    socketio.emit('assignments_confirmed', {
+        'message': 'Roles assigned! Ready to reveal.'
     }, room=room_code)
 
 @socketio.on('reveal_roles')
@@ -257,17 +370,16 @@ def handle_reveal_roles(data):
         return
     
     game = games[room_code]
-    game.game_state = 'reveal_roles'
+    game.game_state = 'roles_revealed'
     
+    # Prépare ce que chaque joueur voit
     player_views = {}
     
     for player_id, role_key in game.role_assignments.items():
-        player_name = game.players[player_id]['name']
-        
-        if role_key in ROLES['LOYALISTS']:
-            role_data = ROLES['LOYALISTS'][role_key]
+        if role_key in ROLES['loyalists']:
+            role_data = ROLES['loyalists'][role_key]
         else:
-            role_data = ROLES['SPIES'][role_key]
+            role_data = ROLES['spies'][role_key]
         
         role_display = {
             'role_name': role_data['name'],
@@ -275,49 +387,55 @@ def handle_reveal_roles(data):
             'type': 'Loyalist' if role_data['type'] == 'loyalist' else 'Spy'
         }
         
-        sees = role_data['sees']
+        # Calcule ce que ce joueur voit
         special_info = {}
+        sees = role_data['sees']
         
         if sees == 'all_spies_except_morgane':
             spy_names = []
             for pid, rid in game.role_assignments.items():
-                if rid in ROLES['SPIES'] and rid != 'morgane':
+                if rid in ROLES['spies'] and rid != 'morgane':
                     spy_names.append(game.players[pid]['name'])
-            special_info['sees_spies'] = spy_names
+            special_info['type'] = 'spies'
+            special_info['names'] = spy_names
         
         elif sees == 'merlin_and_morgane':
             names = []
             for pid, rid in game.role_assignments.items():
                 if rid == 'merlin' or rid == 'morgane':
                     names.append(game.players[pid]['name'])
-            special_info['sees_names'] = names
+            special_info['type'] = 'two_names'
+            special_info['names'] = names
         
         elif sees == 'merlin_only':
             for pid, rid in game.role_assignments.items():
                 if rid == 'merlin':
-                    special_info['sees_merlin'] = game.players[pid]['name']
+                    special_info['type'] = 'one_name'
+                    special_info['name'] = game.players[pid]['name']
         
         elif sees == 'iseult_only':
             for pid, rid in game.role_assignments.items():
                 if rid == 'iseult':
-                    special_info['sees_iseult'] = game.players[pid]['name']
+                    special_info['type'] = 'one_name'
+                    special_info['name'] = game.players[pid]['name']
         
         elif sees == 'tristan_only':
             for pid, rid in game.role_assignments.items():
                 if rid == 'tristan':
-                    special_info['sees_tristan'] = game.players[pid]['name']
+                    special_info['type'] = 'one_name'
+                    special_info['name'] = game.players[pid]['name']
         
         elif sees == 'all_spies':
             spy_names = []
             for pid, rid in game.role_assignments.items():
-                if rid in ROLES['SPIES']:
+                if rid in ROLES['spies']:
                     spy_names.append(game.players[pid]['name'])
-            special_info['sees_spies'] = spy_names
+            special_info['type'] = 'spies'
+            special_info['names'] = spy_names
         
         player_views[player_id] = {
             'role': role_display,
-            'special_info': special_info,
-            'is_gm': player_id == game.game_master_id
+            'special_info': special_info
         }
     
     socketio.emit('reveal_roles_10s', {
@@ -325,128 +443,11 @@ def handle_reveal_roles(data):
         'duration': 10
     }, room=room_code)
 
-@socketio.on('propose_team')
-def handle_propose_team(data):
-    room_code = data.get('room_code')
-    team_players = data.get('team')
-    
-    if room_code not in games:
-        emit('error', {'message': 'Room not found'})
-        return
-    
-    game = games[room_code]
-    game.current_team = team_players
-    game.team_proposal_by = request.sid
-    
-    team_names = [game.players[pid]['name'] for pid in team_players]
-    socketio.emit('team_proposed', {
-        'team': team_names,
-        'proposed_by': game.players[request.sid]['name']
-    }, room=room_code)
-
-@socketio.on('vote_team')
-def handle_vote_team(data):
-    room_code = data.get('room_code')
-    vote = data.get('vote')
-    
-    if room_code not in games:
-        emit('error', {'message': 'Room not found'})
-        return
-    
-    game = games[room_code]
-    game.quest_votes[request.sid] = vote
-
-@socketio.on('end_quest_voting')
-def handle_end_quest_voting(data):
-    room_code = data.get('room_code')
-    
-    if room_code not in games:
-        emit('error', {'message': 'Room not found'})
-        return
-    
-    game = games[room_code]
-    votes = list(game.quest_votes.values())
-    approved = votes.count(True) > votes.count(False)
-    
-    socketio.emit('quest_vote_result', {
-        'approved': approved,
-        'votes': votes
-    }, room=room_code)
-    
-    game.quest_votes = {}
-
-@socketio.on('quest_mission_votes')
-def handle_quest_mission_votes(data):
-    room_code = data.get('room_code')
-    quest_num = data.get('quest_num')
-    player_id = request.sid
-    vote = data.get('vote')
-    
-    if room_code not in games:
-        emit('error', {'message': 'Room not found'})
-        return
-    
-    game = games[room_code]
-    if 'mission_votes' not in vars(game):
-        game.mission_votes = {}
-    
-    game.mission_votes[player_id] = vote
-
-@socketio.on('end_quest_mission')
-def handle_end_quest_mission(data):
-    room_code = data.get('room_code')
-    quest_num = data.get('quest_num')
-    
-    if room_code not in games:
-        emit('error', {'message': 'Room not found'})
-        return
-    
-    game = games[room_code]
-    
-    votes = list(game.mission_votes.values())
-    sabotages = votes.count(False)
-    
-    quest_sizes = [0, 3, 4, 4, 5, 5]
-    team_size = quest_sizes[quest_num] if quest_num < len(quest_sizes) else 5
-    
-    if len(game.players) <= 10:
-        sabotages_needed = 1
-    else:
-        sabotages_needed = 2 if quest_num in [4, 5] else 1
-    
-    quest_succeeds = sabotages < sabotages_needed
-    
-    game.quest_results.append(quest_succeeds)
-    game.current_quest = quest_num
-    
-    socketio.emit('quest_result', {
-        'quest_num': quest_num,
-        'succeeds': quest_succeeds,
-        'sabotages': sabotages,
-        'total_votes': len(votes)
-    }, room=room_code)
-    
-    game.mission_votes = {}
-
-@socketio.on('get_game_state')
-def handle_get_game_state(data):
-    room_code = data.get('room_code')
-    
-    if room_code not in games:
-        emit('error', {'message': 'Room not found'})
-        return
-    
-    game = games[room_code]
-    emit('game_state', game.to_dict())
-
 @socketio.on('disconnect')
 def handle_disconnect():
-    for room_code, game in games.items():
+    for room_code, game in list(games.items()):
         if request.sid in game.players:
             game.players[request.sid]['connected'] = False
-            socketio.emit('player_disconnected', {
-                'player_name': game.players[request.sid]['name']
-            }, room=room_code)
 
 if __name__ == '__main__':
-    socketio.run(app, allow_unsafe_werkzeug=True, host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000)
