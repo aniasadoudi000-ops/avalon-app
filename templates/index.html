@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Resistance: Avalon</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div id="app">
+        <!-- Menu d'accueil -->
+        <div id="home-screen" class="screen active">
+            <div class="container">
+                <h1>The Resistance: Avalon</h1>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="showGameMasterScreen()">I'm Game Master</button>
+                    <button class="btn btn-secondary" onclick="showPlayerJoinScreen()">Join Game</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Master Screen -->
+        <div id="gm-screen" class="screen">
+            <div class="container gm-container">
+                <h2>Game Master Control Panel</h2>
+                
+                <div id="gm-create" class="section">
+                    <h3>Create New Game</h3>
+                    <button class="btn btn-primary" onclick="createGame()">Create Game</button>
+                </div>
+
+                <div id="gm-lobby" class="section hidden">
+                    <h3>Room Code: <span id="room-code-display" class="code">LOADING...</span></h3>
+                    
+                    <div class="players-list">
+                        <h4>Players Joined:</h4>
+                        <ul id="gm-players-list"></ul>
+                    </div>
+
+                    <div class="role-selector">
+                        <h4>Select Roles for This Game</h4>
+                        <div id="role-checkboxes" class="role-grid">
+                            <!-- Populated by JS -->
+                        </div>
+                        <button class="btn btn-primary" onclick="assignRoles()">Assign Roles</button>
+                    </div>
+                </div>
+
+                <div id="gm-game" class="section hidden">
+                    <h3>Game In Progress</h3>
+                    
+                    <div class="game-info">
+                        <div class="quest-tracker">
+                            <h4>Quests: <span id="quest-score">0-0</span></h4>
+                            <div id="quest-results" class="results"></div>
+                        </div>
+                        
+                        <div class="current-quest">
+                            <h4>Current Quest</h4>
+                            <p id="current-quest-info">Quest 1 - Team size: 3</p>
+                        </div>
+                    </div>
+
+                    <div class="gm-controls">
+                        <h4>Game Controls</h4>
+                        <button class="btn btn-secondary" onclick="revealRoles()">Reveal Roles (10s)</button>
+                        <button class="btn btn-secondary" onclick="startNextQuest()">Start Next Quest</button>
+                        <button class="btn btn-secondary" onclick="proposeTeam()">Propose Team</button>
+                        <button class="btn btn-secondary" onclick="startQuestMission()">Start Quest Mission</button>
+                        <button class="btn btn-secondary" onclick="endQuestMission()">End Quest - Show Results</button>
+                        <button class="btn btn-secondary" onclick="nextQuest()">Next Quest</button>
+                        <button class="btn btn-danger" onclick="endGame()">End Game</button>
+                    </div>
+
+                    <div class="role-assignments hidden" id="role-assignments">
+                        <h4>Role Assignments</h4>
+                        <ul id="assignments-list"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Player Join Screen -->
+        <div id="player-join-screen" class="screen">
+            <div class="container">
+                <h2>Join a Game</h2>
+                <div class="form-group">
+                    <input type="text" id="join-room-code" placeholder="Enter Room Code" maxlength="6" class="input">
+                    <input type="text" id="player-name" placeholder="Enter Your Name" class="input">
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="joinGame()">Join Game</button>
+                    <button class="btn btn-secondary" onclick="goHome()">Back</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Player Game Screen -->
+        <div id="player-game-screen" class="screen">
+            <div class="container player-container">
+                <h2>Room: <span id="player-room-code">LOADING...</span></h2>
+                
+                <div id="player-waiting" class="section">
+                    <h3>Waiting for Game Master...</h3>
+                    <div class="players-list">
+                        <h4>Players in Game:</h4>
+                        <ul id="player-players-list"></ul>
+                    </div>
+                </div>
+
+                <div id="player-role-reveal" class="section hidden">
+                    <h3>Your Role is Being Revealed...</h3>
+                    <div class="role-display" id="role-display"></div>
+                </div>
+
+                <div id="player-team-vote" class="section hidden">
+                    <h3>Team Proposed</h3>
+                    <p id="team-info"></p>
+                    <div class="vote-buttons">
+                        <button class="btn btn-success" onclick="voteTeam(true)">✓ Approve</button>
+                        <button class="btn btn-danger" onclick="voteTeam(false)">✗ Reject</button>
+                    </div>
+                </div>
+
+                <div id="player-quest-mission" class="section hidden">
+                    <h3>You're On The Quest</h3>
+                    <p>Cast your vote secretly</p>
+                    <div class="vote-buttons">
+                        <button class="btn btn-success" onclick="questMissionVote(true)">✓ Success</button>
+                        <button class="btn btn-danger" onclick="questMissionVote(false)">✗ Sabotage</button>
+                    </div>
+                </div>
+
+                <div id="player-waiting-quest" class="section hidden">
+                    <h3>Quest In Progress</h3>
+                    <p>Waiting for team members to vote...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
