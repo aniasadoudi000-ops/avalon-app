@@ -10,7 +10,6 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 games = {}
 
-# Définition complète des rôles
 ROLES = {
     'loyalists': {
         'merlin': {
@@ -96,60 +95,20 @@ ROLES = {
     }
 }
 
-# Règles de compatibilité
 COMPATIBILITY = {
-    'merlin': {
-        'requires': ['morgane'],
-        'blocks': []
-    },
-    'perceval': {
-        'requires': ['merlin'],
-        'blocks': []
-    },
-    'morgane': {
-        'requires': [],
-        'blocks': []
-    },
-    'minions': {
-        'requires': ['morgane'],
-        'blocks': []
-    },
-    'oberon': {
-        'requires': [],
-        'blocks': []
-    },
-    'mordred': {
-        'requires': [],
-        'blocks': []
-    },
-    'guinevere': {
-        'requires': ['merlin'],
-        'blocks': []
-    },
-    'tristan': {
-        'requires': ['iseult'],
-        'blocks': []
-    },
-    'iseult': {
-        'requires': ['tristan'],
-        'blocks': []
-    },
-    'lancelot': {
-        'requires': [],
-        'blocks': []
-    },
-    'vivien': {
-        'requires': ['merlin'],
-        'blocks': []
-    },
-    'loyal_servant': {
-        'requires': [],
-        'blocks': []
-    },
-    'minion': {
-        'requires': [],
-        'blocks': []
-    }
+    'merlin': {'requires': ['morgane'], 'blocks': []},
+    'perceval': {'requires': ['merlin'], 'blocks': []},
+    'morgane': {'requires': [], 'blocks': []},
+    'minions': {'requires': ['morgane'], 'blocks': []},
+    'oberon': {'requires': [], 'blocks': []},
+    'mordred': {'requires': [], 'blocks': []},
+    'guinevere': {'requires': ['merlin'], 'blocks': []},
+    'tristan': {'requires': ['iseult'], 'blocks': []},
+    'iseult': {'requires': ['tristan'], 'blocks': []},
+    'lancelot': {'requires': [], 'blocks': []},
+    'vivien': {'requires': ['merlin'], 'blocks': []},
+    'loyal_servant': {'requires': [], 'blocks': []},
+    'minion': {'requires': [], 'blocks': []}
 }
 
 class Game:
@@ -157,14 +116,14 @@ class Game:
         self.room_code = room_code
         self.game_master_id = game_master_id
         self.players = {}
-        self.game_state = 'waiting'  # waiting, selecting_roles, assigning_roles, roles_assigned, in_game, finished
-        self.selected_roles = []  # Rôles sélectionnés par le GM
-        self.role_assignments = {}  # {player_id: role_key}
+        self.game_state = 'waiting'
+        self.selected_roles = []
+        self.role_assignments = {}
         self.current_quest = 0
         self.quest_results = []
         self.quest_votes = {}
-        self.current_team = []
         self.mission_votes = {}
+        self.current_team = []
 
     def to_dict(self):
         return {
@@ -182,16 +141,13 @@ def generate_room_code():
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
 
 def get_compatible_roles(selected_roles):
-    """Retourne quels rôles peuvent être sélectionnés basé sur les sélections actuelles"""
     compatible = {}
     all_roles = {**ROLES['loyalists'], **ROLES['spies']}
     
     for role_key, role_data in all_roles.items():
         if role_key in selected_roles:
-            # Rôle déjà sélectionné
             compatible[role_key] = {'enabled': True, 'reason': 'selected'}
         else:
-            # Check si les requirements sont satisfaits
             reqs = COMPATIBILITY.get(role_key, {}).get('requires', [])
             blocks = COMPATIBILITY.get(role_key, {}).get('blocks', [])
             
@@ -201,10 +157,7 @@ def get_compatible_roles(selected_roles):
             if req_satisfied and not_blocked:
                 compatible[role_key] = {'enabled': True, 'reason': ''}
             else:
-                if not req_satisfied:
-                    reason = f"Requires: {', '.join(reqs)}"
-                else:
-                    reason = f"Blocked by: {', '.join(blocks)}"
+                reason = f"Requires: {', '.join(reqs)}" if not req_satisfied else f"Blocked by: {', '.join(blocks)}"
                 compatible[role_key] = {'enabled': False, 'reason': reason}
     
     return compatible
@@ -265,7 +218,6 @@ def handle_get_compatible_roles(data):
     game = games[room_code]
     compatible = get_compatible_roles(game.selected_roles)
     
-    # Format pour frontend
     roles_list = []
     for role_key, role_data in {**ROLES['loyalists'], **ROLES['spies']}.items():
         role_type = 'loyalist' if role_key in ROLES['loyalists'] else 'spy'
@@ -299,7 +251,6 @@ def handle_toggle_role(data):
     else:
         game.selected_roles.append(role_key)
     
-    # Broadcast roles mises à jour
     socketio.emit('roles_updated', {
         'selected_roles': game.selected_roles
     }, room=room_code)
@@ -315,7 +266,6 @@ def handle_start_assignment(data):
     game = games[room_code]
     game.game_state = 'assigning_roles'
     
-    # Prépare l'interface d'assignation
     players_list = []
     for player_id, player in game.players.items():
         players_list.append({
@@ -351,7 +301,6 @@ def handle_confirm_assignments(data):
     
     game = games[room_code]
     
-    # Vérifie que tous les joueurs ont un rôle
     if len(game.role_assignments) != len(game.players):
         emit('error', {'message': 'Not all players assigned'})
         return
@@ -372,7 +321,6 @@ def handle_reveal_roles(data):
     game = games[room_code]
     game.game_state = 'roles_revealed'
     
-    # Prépare ce que chaque joueur voit
     player_views = {}
     
     for player_id, role_key in game.role_assignments.items():
@@ -387,7 +335,6 @@ def handle_reveal_roles(data):
             'type': 'Loyalist' if role_data['type'] == 'loyalist' else 'Spy'
         }
         
-        # Calcule ce que ce joueur voit
         special_info = {}
         sees = role_data['sees']
         
